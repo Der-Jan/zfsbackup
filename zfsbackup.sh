@@ -106,7 +106,6 @@ GPGBIN="gpg"
 SSHBIN="ssh"
 
 
-
 # If you would like to customize the email sent to you, you can add other
 # commands here such as `date` or `zpool status` or anything else pertinent
 function status-email {
@@ -133,6 +132,7 @@ EOF
 ## Config Section End - No more edits! ##
 
 
+SSHKEY="$CONFDIR/$ZFSPREFIX_id_rsa"
 
 REMOTEFILENAME='$REMOTEPATH/$ZFSPREFIX-$DATE.zfs.gpg'
 
@@ -143,20 +143,20 @@ REMOTEFILENAME='$REMOTEPATH/$ZFSPREFIX-$DATE.zfs.gpg'
 # backups; the schemes will be different.
 # Do not touch this unless you really know what you're doing!
 function ZFSSENDFULLCMD {
-$ZFSBIN send -R ${ZFSVOLUME}@${DATE}|$GPGCMD --encrypt -r $GPGEMAIL | tee >(md5sum -b > md5sum.tmp) | $SSHBIN $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
+$ZFSBIN send -R ${ZFSVOLUME}@${DATE}|$GPGCMD --encrypt -r $GPGEMAIL | tee >(md5sum -b > md5sum.tmp) | $SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
 }
 function ZFSSENDINCREMENTALCMD {
-$ZFSBIN send -RI ${ZFSVOLUME}@${LASTSNAPSHOTDATE} ${ZFSVOLUME}@${DATE} |$GPGCMD --encrypt -r $GPGEMAIL | tee >(md5sum -b > md5sum.tmp) | $SSHBIN $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
+$ZFSBIN send -RI ${ZFSVOLUME}@${LASTSNAPSHOTDATE} ${ZFSVOLUME}@${DATE} |$GPGCMD --encrypt -r $GPGEMAIL | tee >(md5sum -b > md5sum.tmp) | $SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
 }
 function ZFSRECEIVECMD {
-$SSHBIN $SSHLOGIN "cat `eval echo $REMOTEFILENAME|sed 's/://g'`" | $GPGCMD --passphrase-file <(eval echo $GPGPASSWORD) --decrypt --secret-keyring ./$ZFSPREFIX.sec  | $ZFSBIN receive -F -d $1
+$SSHBIN -i $SSHKEY $SSHLOGIN "cat `eval echo $REMOTEFILENAME|sed 's/://g'`" | $GPGCMD --passphrase-file <(eval echo $GPGPASSWORD) --decrypt --secret-keyring ./$ZFSPREFIX.sec  | $ZFSBIN receive -F -d $1
 }
 function ZFSRMCMD {
-$SSHBIN $SSHLOGIN "rm `eval echo $REMOTEFILENAME|sed 's/://g'`"
+$SSHBIN -i $SSHKEY $SSHLOGIN "rm `eval echo $REMOTEFILENAME|sed 's/://g'`"
 
 }
 function ZFSMD5CMD {
-$SSHBIN $SSHLOGIN "md5sum -b `eval echo $REMOTEFILENAME|sed 's/://g'`" |awk '// { print $1 }'
+$SSHBIN -i $SSHKEY $SSHLOGIN "md5sum -b `eval echo $REMOTEFILENAME|sed 's/://g'`" |awk '// { print $1 }'
 }
 
 GPGCMD="$GPGBIN --no-default-keyring --keyring $CONFDIR/$ZFSPREFIX.pub"
@@ -198,6 +198,8 @@ function zfs-init {
   echo
   echo "Again, let me repeat. PLEASE KEEP $GPGSECKEY IN A SAFE LOCATION."
   echo
+  echo "Creating ssh-key"
+  ssh-keygen -f $SSHKEY
 }
 
 function zfs-resume {
