@@ -132,7 +132,7 @@ EOF
 ## Config Section End - No more edits! ##
 
 
-SSHKEY="$CONFDIR/$ZFSPREFIX_id_rsa"
+SSHKEY="$CONFDIR/${ZFSPREFIX}_id_rsa"
 
 REMOTEFILENAME='$REMOTEPATH/$ZFSPREFIX-$DATE.zfs.gpg'
 
@@ -199,7 +199,10 @@ function zfs-init {
   echo "Again, let me repeat. PLEASE KEEP $GPGSECKEY IN A SAFE LOCATION."
   echo
   echo "Creating ssh-key"
-  ssh-keygen -f $SSHKEY
+  ssh-keygen -f $SSHKEY -C "zfsbackup ssh key"
+  echo "Add this to your authorized_keys on the server"
+  ssh-keygen -f $SSHKEY -y 
+
 }
 
 function zfs-resume {
