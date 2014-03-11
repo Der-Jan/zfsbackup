@@ -229,7 +229,7 @@ function zfs-send-backup {
   if [ "$TYPE" == 'Full' ]; then
     ZFSSENDFULLCMD
   elif [ "$TYPE" == 'Incremental' ]; then
-    LASTSNAPSHOTDATE=`$DB "SELECT date FROM status WHERE date < '$DATE' AND Status='Complete' AND LocalSnapshot=1 ORDER BY Date DESC LIMIT 1;"`
+    LASTSNAPSHOTDATE=`$DB "SELECT date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) < datetime('$DATE') AND Status='Complete' AND LocalSnapshot=1 ORDER BY Date DESC LIMIT 1;"`
     if [ "$LASTSNAPSHOTDATE" == '' ]; then
       echo "Reference local snapshot does not exist anymore to be able to make incremental backup."
       echo "Falling back to full backup."
@@ -272,7 +272,7 @@ function zfs-backup {
   fi
   echo "Starting backup..."
   echo $$ > $ZFSPID
-  $DB "INSERT INTO status VALUES (strftime('%Y-%m-%dT%H:%M:%S',current_timestamp),'Phantom',0,null,null,'Died before snapshot made...');"
+  $DB "INSERT INTO status VALUES ('$ZFSPREFIX-' || strftime('%Y-%m-%dT%H:%M:%S',current_timestamp),'Phantom',0,null,null,'Died before snapshot made...');"
   DATE=`$DB "SELECT date FROM status ORDER BY date DESC LIMIT 1"`
   echo "Creating new snapshot..."
   $ZFSBIN snapshot -r ${ZFSVOLUME}@${DATE}
@@ -498,29 +498,29 @@ esac
  
 # fetches a backup set from the first full backup to the current state. Returns to $BACKUPSET
 function fetch-backup-set {
-  LASTFULL=`$DB "SELECT Date FROM status WHERE DATETIME(Date) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
-  BACKUPSET=`$DB "SELECT Date FROM status WHERE DATETIME(Date) BETWEEN DATETIME('$LASTFULL') AND DATETIME('$1') AND status='Complete';"`
+  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
+  BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) BETWEEN DATETIME('$LASTFULL') AND DATETIME('$1') AND status='Complete';"`
 }
 
 # fetches the full backup set that this backup is in. Returns to $BACKUPSET
 function fetch-fullbackup-set {
-  LASTFULL=`$DB "SELECT Date FROM status WHERE DATETIME(Date) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
-  NEXTFULL=`$DB "SELECT Date FROM status WHERE DATETIME(Date) > DATETIME('$LASTFULL') AND Type='Full' ORDER BY Date ASC LIMIT 1;"`
+  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
+  NEXTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) > DATETIME('$LASTFULL') AND Type='Full' ORDER BY Date ASC LIMIT 1;"`
   if [ "$NEXTFULL" == '' ]; then
-    BACKUPSET=`$DB "SELECT Date FROM status WHERE DATETIME(Date) >= DATETIME('$LASTFULL');"`
+    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$LASTFULL');"`
   else    
-    BACKUPSET=`$DB "SELECT Date FROM status WHERE DATETIME(Date) >= DATETIME('$LASTFULL') AND DATETIME(Date) < DATETIME('$NEXTFULL');"`
+    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$LASTFULL') AND datetime(replace(date,'$ZFSPREFIX-','')) < DATETIME('$NEXTFULL');"`
   fi
 }
 
 # fetches the current and future backup set that this backup is in. Returns to $BACKUPSET
 function fetch-newestbackup-set {
-  LASTFULL=`$DB "SELECT Date FROM status WHERE DATETIME(Date) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
-  NEXTFULL=`$DB "SELECT Date FROM status WHERE DATETIME(Date) > DATETIME('$LASTFULL') AND Type='Full' ORDER BY Date ASC LIMIT 1;"`
+  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
+  NEXTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) > DATETIME('$LASTFULL') AND Type='Full' ORDER BY Date ASC LIMIT 1;"`
   if [ "$NEXTFULL" == '' ]; then
-    BACKUPSET=`$DB "SELECT Date FROM status WHERE DATETIME(Date) >= DATETIME('$1');"`
+    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$1');"`
   else   
-    BACKUPSET=`$DB "SELECT Date FROM status WHERE DATETIME(Date) >= DATETIME('$1') AND DATETIME(Date) < DATETIME('$NEXTFULL');"`
+    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$1') AND DATETIME(Date) < DATETIME('$NEXTFULL');"`
   fi
 }
 
@@ -564,7 +564,7 @@ function check-if-running {
 
 # check if a full backup or incremental backup is due (0 - full, 1 - incremental)
 function check-backup-type {
-OUTPUT=`$DB "SELECT Date FROM status WHERE status='Complete' AND Type = 'Full' and date > datetime(current_timestamp, '-$ZFSFULLEXPIRATION') ORDER BY Date DESC LIMIT 1"`
+OUTPUT=`$DB "SELECT Date FROM status WHERE status='Complete' AND Type = 'Full' and datetime(replace(date,'$ZFSPREFIX-','')) > datetime(current_timestamp, '-$ZFSFULLEXPIRATION') ORDER BY Date DESC LIMIT 1"`
 if [ "$OUTPUT" ]; then
   echo "Our last full backup was $OUTPUT - running incremental backup."
   return 1 
@@ -575,7 +575,7 @@ fi
 }
 
 function expire-local-snapshots {
-EXPIREDSNAPSHOTS=`$DB "SELECT Date FROM status WHERE date < datetime(current_timestamp, '-$ZFSSNAPSHOTEXPIRATION') AND LocalSnapshot=1"`
+EXPIREDSNAPSHOTS=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) < datetime(current_timestamp, '-$ZFSSNAPSHOTEXPIRATION') AND LocalSnapshot=1"`
 for i in $EXPIREDSNAPSHOTS; do
   echo "$i has passed the $ZFSSNAPSHOTEXPIRATION retention period for local snapshots, removing local snapshot."
   $ZFSBIN destroy $ZFSVOLUME@$i
