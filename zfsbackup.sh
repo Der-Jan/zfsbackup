@@ -225,8 +225,11 @@ function zfs-init {
   echo "Creating ssh-key"
   ssh-keygen -f $SSHKEY -C "zfsbackup ssh key"
   echo "Add this to your authorized_keys on the server"
-  ssh-keygen -f $SSHKEY -y 
-
+  if [ "X$USESFTP" == "X" ]; then
+	ssh-keygen -f $SSHKEY -y 
+  else
+	ssh-keygen -f $SSHKEY -y -e | grep -v ^Comment:
+  fi
 }
 
 function zfs-resume {
