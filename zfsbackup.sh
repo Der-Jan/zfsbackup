@@ -77,7 +77,7 @@ ZFSADMIN=youremail@yourhost.com
 
 # ssh login for remote server (either hostname or username@hostname)
 SSHLOGIN=remoteuser@remostbackup
-
+USESFTP=true
 
 # Local path to folder to keep config files (You must create this directory)
 CONFDIR=/home/user/zfsbackup
@@ -105,6 +105,8 @@ ZFSBIN="pfexec zfs"
 GPGBIN="gpg"
 SSHBIN="ssh"
 
+LOCALMD5="md5 -q"
+REMOTEMD5="md5sum -b"
 
 # If you would like to customize the email sent to you, you can add other
 # commands here such as `date` or `zpool status` or anything else pertinent
@@ -134,7 +136,7 @@ EOF
 
 SSHKEY="$CONFDIR/${ZFSPREFIX}_id_rsa"
 
-REMOTEFILENAME='$REMOTEPATH/$ZFSPREFIX-$DATE.zfs.gpg'
+REMOTEFILENAME='$REMOTEPATH/$DATE.zfs.gpg'
 
 ## commands - DO NOT EDIT UNLESS YOU KNOW WHAT YOU'RE DOING! ## 
 # Commands to pipe from/to - Change this to add compression or different
@@ -143,20 +145,42 @@ REMOTEFILENAME='$REMOTEPATH/$ZFSPREFIX-$DATE.zfs.gpg'
 # backups; the schemes will be different.
 # Do not touch this unless you really know what you're doing!
 function ZFSSENDFULLCMD {
-$ZFSBIN send -R ${ZFSVOLUME}@${DATE}|$GPGCMD --encrypt -r $GPGEMAIL | tee >(md5sum -b > md5sum.tmp) | $SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
+$ZFSBIN send -R ${ZFSVOLUME}@${DATE}|$GPGCMD --encrypt -r $GPGEMAIL | tee >($LOCALMD5 > md5sum.tmp) | $SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
+if [ "X$USESFTP" == "X" ]; then
+	$SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
+else
+	curl --key $SSHKEY --pubkey $SSHKEY.pub -T - "sftp://$SSHLOGIN/`eval echo $REMOTEFILENAME|sed 's/://g'`"
+fi
 }
 function ZFSSENDINCREMENTALCMD {
-$ZFSBIN send -RI ${ZFSVOLUME}@${LASTSNAPSHOTDATE} ${ZFSVOLUME}@${DATE} |$GPGCMD --encrypt -r $GPGEMAIL | tee >(md5sum -b > md5sum.tmp) | $SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
+$ZFSBIN send -RI ${ZFSVOLUME}@${LASTSNAPSHOTDATE} ${ZFSVOLUME}@${DATE} |$GPGCMD --encrypt -r $GPGEMAIL | tee >($LOCALMD5 > md5sum.tmp) | 
+if [ "X$USESFTP" == "X" ]; then
+	$SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
+else
+	curl --key $SSHKEY --pubkey $SSHKEY.pub -T - "sftp://$SSHLOGIN/`eval echo $REMOTEFILENAME|sed 's/://g'`"  
+fi
 }
 function ZFSRECEIVECMD {
-$SSHBIN -i $SSHKEY $SSHLOGIN "cat `eval echo $REMOTEFILENAME|sed 's/://g'`" | $GPGCMD --passphrase-file <(eval echo $GPGPASSWORD) --decrypt --secret-keyring ./$ZFSPREFIX.sec  | $ZFSBIN receive -F -d $1
+if [ "X$USESFTP" == "X" ]; then
+	$SSHBIN -i $SSHKEY $SSHLOGIN "cat `eval echo $REMOTEFILENAME|sed 's/://g'`" 
+else
+	curl --key $SSHKEY --pubkey $SSHKEY.pub "sftp://$SSHLOGIN/`eval echo $REMOTEFILENAME|sed 's/://g'`" 
+fi |
+$GPGCMD --passphrase-file <(eval echo $GPGPASSWORD) --decrypt --secret-keyring ./$ZFSPREFIX.sec  | $ZFSBIN receive -F -d $1
 }
 function ZFSRMCMD {
-$SSHBIN -i $SSHKEY $SSHLOGIN "rm `eval echo $REMOTEFILENAME|sed 's/://g'`"
-
+if [ "X$USESFTP" == "X" ]; then
+	$SSHBIN -i $SSHKEY $SSHLOGIN "rm `eval echo $REMOTEFILENAME|sed 's/://g'`"
+else
+	echo "rm `eval echo $REMOTEFILENAME|sed 's/://g'`" | sftp -i $SSHKEY $SSHLOGIN
+fi
 }
 function ZFSMD5CMD {
-$SSHBIN -i $SSHKEY $SSHLOGIN "md5sum -b `eval echo $REMOTEFILENAME|sed 's/://g'`" |awk '// { print $1 }'
+if [ "X$USESFTP" == "X" ]; then
+	$SSHBIN -i $SSHKEY $SSHLOGIN "$REMOTEMD5 `eval echo $REMOTEFILENAME|sed 's/://g'`" |awk '// { print $1 }'
+else
+	curl --key $SSHKEY --pubkey $SSHKEY.pub "sftp://$SSHLOGIN/`eval echo $REMOTEFILENAME|sed 's/://g'`" | $LOCALMD5
+fi 
 }
 
 GPGCMD="$GPGBIN --no-default-keyring --keyring $CONFDIR/$ZFSPREFIX.pub"
