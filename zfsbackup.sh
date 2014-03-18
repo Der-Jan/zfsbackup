@@ -145,7 +145,7 @@ REMOTEFILENAME='$REMOTEPATH/$DATE.zfs.gpg'
 # backups; the schemes will be different.
 # Do not touch this unless you really know what you're doing!
 function ZFSSENDFULLCMD {
-$ZFSBIN send -R ${ZFSVOLUME}@${DATE}|$GPGCMD --encrypt -r $GPGEMAIL | tee >($LOCALMD5 > md5sum.tmp) | $SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
+$ZFSBIN send -R ${ZFSVOLUME}@${DATE}|$GPGCMD --encrypt -r $GPGEMAIL | tee >($LOCALMD5 > md5sum.tmp) |
 if [ "X$USESFTP" == "X" ]; then
 	$SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
 else
