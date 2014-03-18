@@ -166,7 +166,7 @@ if [ "X$USESFTP" == "X" ]; then
 else
 	curl --key $SSHKEY --pubkey $SSHKEY.pub "sftp://$SSHLOGIN/`eval echo $REMOTEFILENAME|sed 's/://g'`" 
 fi |
-$GPGCMD --passphrase-file <(eval echo $GPGPASSWORD) --decrypt --secret-keyring ./$ZFSPREFIX.sec  | $ZFSBIN receive -F -d $1
+$GPGCMD --passphrase-file <(eval echo $GPGPASSWORD) --decrypt --secret-keyring $GPGSECKEY  | $ZFSBIN receive -F -d $1
 }
 function ZFSRMCMD {
 if [ "X$USESFTP" == "X" ]; then
@@ -525,29 +525,29 @@ esac
  
 # fetches a backup set from the first full backup to the current state. Returns to $BACKUPSET
 function fetch-backup-set {
-  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
-  BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) BETWEEN DATETIME('$LASTFULL') AND DATETIME('$1') AND status='Complete';"`
+  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME(replace('$1','$ZFSPREFIX-','')) AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
+  BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) BETWEEN DATETIME(replace('$LASTFULL','$ZFSPREFIX-','')) AND DATETIME(replace('$1','$ZFSPREFIX-','')) AND status='Complete';"`
 }
 
 # fetches the full backup set that this backup is in. Returns to $BACKUPSET
 function fetch-fullbackup-set {
-  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
-  NEXTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) > DATETIME('$LASTFULL') AND Type='Full' ORDER BY Date ASC LIMIT 1;"`
+  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME(replace('$1','$Z    FSPREFIX-','')) AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
+  NEXTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) > DATETIME(replace('$LASTFULL','$ZFSPREFIX-','')) AND Type='Full' ORDER BY Date ASC LIMIT 1;"`
   if [ "$NEXTFULL" == '' ]; then
-    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$LASTFULL');"`
+    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME(replace('$LASTFULL','$ZFSPREFIX-',''));"`
   else    
-    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$LASTFULL') AND datetime(replace(date,'$ZFSPREFIX-','')) < DATETIME('$NEXTFULL');"`
+    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME(replace('$LASTFULL','$ZFSPREFIX-','')) AND datetime(replace(date,'$ZFSPREFIX-','')) < DATETIME(replace('$NEXTFULL','$ZFSPREFIX-',''));"`
   fi
 }
 
 # fetches the current and future backup set that this backup is in. Returns to $BACKUPSET
 function fetch-newestbackup-set {
-  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME('$1') AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
-  NEXTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) > DATETIME('$LASTFULL') AND Type='Full' ORDER BY Date ASC LIMIT 1;"`
+  LASTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) <= DATETIME(replace('$1','$ZFSPREFIX-','')) AND Type ='Full' ORDER BY Date DESC LIMIT 1;"`
+  NEXTFULL=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) > DATETIME(replace('$LASTFULL','$ZFSPREFIX-','')) AND Type='Full' ORDER BY Date ASC LIMIT 1;"`
   if [ "$NEXTFULL" == '' ]; then
-    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$1');"`
+    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME(replace('$1','$ZFSPREFIX-',''));"`
   else   
-    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$1') AND DATETIME(Date) < DATETIME('$NEXTFULL');"`
+    BACKUPSET=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) >= DATETIME('$1') AND DATETIME(Date) < DATETIME(replace('$NEXTFULL','$ZFSPREFIX-',''));"`
   fi
 }
 
