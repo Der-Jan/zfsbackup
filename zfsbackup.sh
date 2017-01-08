@@ -70,7 +70,7 @@
 ZFSPREFIX=backup
 
 # Volume to run the backup on 
-ZFSVOLUME=rpool/storage
+#  ZFSVOLUME=rpool/storage
 
 # Email address of administrator
 ZFSADMIN=youremail@yourhost.com
@@ -136,7 +136,8 @@ EOF
 
 SSHKEY="$CONFDIR/${ZFSPREFIX}_id_rsa"
 
-REMOTEFILENAME='$REMOTEPATH/$DATE.zfs.gpg'
+# TODO add ZFSVOLUME
+REMOTEFILENAME='$REMOTEPATH/$SNAPSHOTNAME.zfs.gpg'
 
 ## commands - DO NOT EDIT UNLESS YOU KNOW WHAT YOU'RE DOING! ## 
 # Commands to pipe from/to - Change this to add compression or different
@@ -145,7 +146,7 @@ REMOTEFILENAME='$REMOTEPATH/$DATE.zfs.gpg'
 # backups; the schemes will be different.
 # Do not touch this unless you really know what you're doing!
 function ZFSSENDFULLCMD {
-$ZFSBIN send -R ${ZFSVOLUME}@${DATE}|$GPGCMD --encrypt -r $GPGEMAIL | tee >($LOCALMD5 > md5sum.tmp) |
+$ZFSBIN send -R ${ZFSVOLUME}@${SNAPSHOTNAME}|$GPGCMD --encrypt -r $GPGEMAIL | tee >($LOCALMD5 > md5sum.tmp) |
 if [ "X$USESFTP" == "X" ]; then
 	$SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
 else
@@ -153,7 +154,7 @@ else
 fi
 }
 function ZFSSENDINCREMENTALCMD {
-$ZFSBIN send -RI ${ZFSVOLUME}@${LASTSNAPSHOTDATE} ${ZFSVOLUME}@${DATE} |$GPGCMD --encrypt -r $GPGEMAIL | tee >($LOCALMD5 > md5sum.tmp) | 
+$ZFSBIN send -RI ${ZFSVOLUME}@${LASTSNAPSHOTDATE} ${ZFSVOLUME}@${SNAPSHOTNAME} |$GPGCMD --encrypt -r $GPGEMAIL | tee >($LOCALMD5 > md5sum.tmp) | 
 if [ "X$USESFTP" == "X" ]; then
 	$SSHBIN -i $SSHKEY $SSHLOGIN bash -c "cat > '`eval echo $REMOTEFILENAME|sed 's/://g'`'"
 else
@@ -208,9 +209,9 @@ function zfs-init {
   echo "Keys created!"
   echo "Creating Status DB..."
   $DB "CREATE TABLE system (Key TEXT, Value TEXT);"
-  $DB "INSERT INTO system VALUES ('Version', '1');"
+  $DB "INSERT INTO system VALUES ('Version', '2');"
   $DB "INSERT INTO system VALUES ('lastverify',null)"
-  $DB "CREATE TABLE status (Date TEXT, Status TEXT, LocalSnapshot INTEGER, Type TEXT, Hash BLOB, ErrorDesc TEXT);"
+  $DB "CREATE TABLE status (Date TIMESTAMP, Status TEXT, LocalSnapshot INTEGER, Type TEXT, Hash BLOB, ErrorDesc TEXT, SnapshotName TEXT, Volume Text );"
   echo "Done!"
   echo
   echo "IMPORTANT NOTICE:"
@@ -235,14 +236,14 @@ function zfs-init {
 function zfs-resume {
   check-if-running
   echo $$ > $ZFSPID
-  DATE=`$DB "SELECT Date FROM status WHERE Status='Incomplete' LIMIT 1"`
-  if [ "$DATE" == '' ]; then
+  VOLSNAP=`$DB "SELECT Volume || '@' || SnapshotName FROM status WHERE Status='Incomplete' LIMIT 1"`
+  if [ "$VOLSNAP" == '' ]; then
     echo "There are no incomplete backups to resume."
   else
-    TYPE=`$DB "SELECT Type FROM status WHERE Status='Incomplete' AND Date='$DATE'"`
-    echo "$DATE was interrupted, resuming $TYPE backup..."
-    zfs-send-backup $DATE
-    echo "$DATE backup successfully completed."
+    TYPE=`$DB "SELECT Type FROM status WHERE Status='Incomplete' AND Volume || '@' || SnapshotName ='$VOLSNAP'"`
+    echo "$VOLSNAP was interrupted, resuming $TYPE backup..."
+    zfs-send-backup $VOLSNAP
+    echo "$VOLSNAP backup successfully completed."
   fi
   rm $ZFSPID
 }
@@ -251,12 +252,13 @@ function zfs-resume {
 # Create the snapshot and place update the db then pass the $DATE to $1
 function zfs-send-backup {
   gpg-setemail
-  TYPE=`$DB "SELECT Type FROM status WHERE Date='$1'"`
-  DATE=$1
+  TYPE=`$DB "SELECT Type FROM status WHERE Volume || '@' || SnapshotName = '$1'"`
+  DATE=`$DB "SELECT Date FROM status WHERE Volume || '@' || SnapshotName = '$1'"`
+  VOLSNAP=$1
   if [ "$TYPE" == 'Full' ]; then
     ZFSSENDFULLCMD
   elif [ "$TYPE" == 'Incremental' ]; then
-    LASTSNAPSHOTDATE=`$DB "SELECT date FROM status WHERE datetime(replace(date,'$ZFSPREFIX-','')) < datetime('$DATE') AND Status='Complete' AND LocalSnapshot=1 ORDER BY Date DESC LIMIT 1;"`
+    LASTSNAPSHOTDATE=`$DB "SELECT date FROM status WHERE datetime(date) < datetime('$DATE') AND Status='Complete' AND LocalSnapshot=1 AND Volume='$ZFSVOLUME' ORDER BY Date DESC LIMIT 1;"`
     if [ "$LASTSNAPSHOTDATE" == '' ]; then
       echo "Reference local snapshot does not exist anymore to be able to make incremental backup."
       echo "Falling back to full backup."
@@ -268,7 +270,7 @@ function zfs-send-backup {
     echo "ERROR: $DATE does not exist or the DB is corrupt/missing Type field."
     exit 1
   fi
-  $DB "UPDATE status SET Status='Complete',Hash='`awk '// { print $1 }' md5sum.tmp`',ErrorDesc=null WHERE date='$DATE' "
+  $DB "UPDATE status SET Status='Complete',Hash='`awk '// { print $1 }' md5sum.tmp`',ErrorDesc=null WHERE Volume || '@' || SnapshotName = '$VOLSNAP'"
   rm md5sum.tmp
 }
 
@@ -280,7 +282,7 @@ function zfs-remove-backup {
     exit 1
   fi
   ZFSRMCMD
-  $DB "UPDATE status Set Status='Removed' WHERE Date='$1'"
+  $DB "UPDATE status Set Status='Removed' WHERE Date='$1' AND Volume='$ZFSVOLUME'"
 }
 
 # main backup code
@@ -299,18 +301,18 @@ function zfs-backup {
   fi
   echo "Starting backup..."
   echo $$ > $ZFSPID
-  $DB "INSERT INTO status VALUES ('$ZFSPREFIX-' || strftime('%Y-%m-%dT%H:%M:%S',current_timestamp),'Phantom',0,null,null,'Died before snapshot made...');"
+  $DB "INSERT INTO status VALUES (strftime('%Y-%m-%dT%H:%M:%S',current_timestamp),'Phantom',0,null,null,'Died before snapshot made...', '$ZFSPREFIX-' || strftime('%Y-%m-%dT%H:%M:%S',current_timestamp), '$ZFSVOLUME');"
   DATE=`$DB "SELECT date FROM status ORDER BY date DESC LIMIT 1"`
   echo "Creating new snapshot..."
   $ZFSBIN snapshot -r ${ZFSVOLUME}@${DATE}
   if [ "$1" == 'force-full' ] || check-backup-type; then
     BACKUPTYPE=Full
-    $DB "UPDATE status SET Status='Incomplete',LocalSnapshot=1,Type='Full',ErrorDesc='Sending snapshot...' WHERE date='$DATE'"
+    $DB "UPDATE status SET Status='Incomplete',LocalSnapshot=1,Type='Full',ErrorDesc='Sending snapshot...' WHERE date='$DATE' AND Volume='$ZFSVOLUME'"
     zfs-send-backup $DATE
     echo "Full Backup Complete."
   else
     BACKUPTYPE=Incremental
-    $DB "UPDATE status SET Status='Incomplete',LocalSnapshot=1,Type='Incremental',ErrorDesc='Sending snapshot...' WHERE date='$DATE'"
+    $DB "UPDATE status SET Status='Incomplete',LocalSnapshot=1,Type='Incremental',ErrorDesc='Sending snapshot...' WHERE date='$DATE' AND Volume='$ZFSVOLUME'"
     zfs-send-backup $DATE
     echo "Incremental Backup Complete."
   fi
@@ -434,9 +436,9 @@ function zfs-verify {
     VERIFIED=`$DB "SELECT COUNT(*) FROM status WHERE Date='$DATE' AND Hash='$MD5SUM'"`
     if [ $VERIFIED -eq 1 ]; then
       echo " VERIFIED - MD5 Checksum Passed!"
-      $DB "UPDATE status SET Status='Complete',ErrorDesc=null WHERE Date='$DATE'"
+      $DB "UPDATE status SET Status='Complete',ErrorDesc=null WHERE Date='$DATE' AND Volume='$ZFSVOLUME'"
     else
-      $DB "UPDATE status SET Status='Error',ErrorDesc='MD5 Checksum Failed!' WHERE Date='$DATE'"
+      $DB "UPDATE status SET Status='Error',ErrorDesc='MD5 Checksum Failed!' WHERE Date='$DATE' AND Volume='$ZFSVOLUME'"
       echo " FAILED - MD5 Checksum Failed!"
     fi
   done
@@ -606,7 +608,7 @@ EXPIREDSNAPSHOTS=`$DB "SELECT Date FROM status WHERE datetime(replace(date,'$ZFS
 for i in $EXPIREDSNAPSHOTS; do
   echo "$i has passed the $ZFSSNAPSHOTEXPIRATION retention period for local snapshots, removing local snapshot."
   $ZFSBIN destroy $ZFSVOLUME@$i
-  $DB "UPDATE Status SET LocalSnapshot=0 WHERE Date='$i'"
+  $DB "UPDATE Status SET LocalSnapshot=0 WHERE Date='$i' AND Volume='$ZFSVOLUME'"
 done
 }
 
